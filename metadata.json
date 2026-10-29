@@ -1,0 +1,6 @@
+{
+  "name": "AI-Yurist: O‘zbekiston Qonunchiligi Huquqiy Maslahatchisi",
+  "description": "O‘zbekiston Respublikasi qonunlari, yangi Mehnat kodeksi, Soliq kodeksi va Lex.uz bazasi asosida tadbirkorlar, buxgalterlar va fuqarolar uchun 15 yillik tajribali professional AI-yurist konsultatsiyasi va hujjatlar konstruktori.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
