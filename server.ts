@@ -4,7 +4,8 @@ import type { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
-import { startTelegramBot, TelegramBotController } from './src/services/telegramBot.ts';
+import { startTelegramBot } from './src/services/telegramBot.ts';
+import type { TelegramBotController } from './src/services/telegramBot.ts';
 import {
   getLegalConsultationFallback,
   generateFallbackDocument,
