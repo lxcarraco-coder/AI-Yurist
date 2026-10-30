@@ -5,13 +5,26 @@ import { FileCheck, Sparkles, Copy, Check, Download, Printer, RefreshCw, FileTex
 
 import { Language, translations } from '../locales/i18n';
 
+import { UserProfile } from '../types';
+import { Save } from 'lucide-react';
+
 interface Props {
   initialDocumentText?: string;
   onClearInitialText?: () => void;
   lang?: Language;
+  user?: UserProfile | null;
+  onOpenProfile?: () => void;
+  telegramUserId?: number;
 }
 
-export const DocumentBuilderTab: React.FC<Props> = ({ initialDocumentText, onClearInitialText, lang = 'uz' }) => {
+export const DocumentBuilderTab: React.FC<Props> = ({
+  initialDocumentText,
+  onClearInitialText,
+  lang = 'uz',
+  user,
+  onOpenProfile,
+  telegramUserId,
+}) => {
   const t = translations[lang];
   const [selectedTemplate, setSelectedTemplate] = useState<DocumentTemplate>(DOCUMENT_TEMPLATES[0]);
   const [documentContent, setDocumentContent] = useState<string>(DOCUMENT_TEMPLATES[0].templateText);
@@ -19,6 +32,8 @@ export const DocumentBuilderTab: React.FC<Props> = ({ initialDocumentText, onCle
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [copied, setCopied] = useState(false);
   const [isAiGenerating, setIsAiGenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedNotice, setSavedNotice] = useState<string | null>(null);
 
   // Custom AI Document Generation inputs
   const [customDocType, setCustomDocType] = useState('');
@@ -26,6 +41,43 @@ export const DocumentBuilderTab: React.FC<Props> = ({ initialDocumentText, onCle
   const [customPartyB, setCustomPartyB] = useState('');
   const [customDetails, setCustomDetails] = useState('');
   const [showAiModal, setShowAiModal] = useState(false);
+
+  const handleSaveToProfile = async () => {
+    const targetId = user?.telegramId || telegramUserId;
+    if (!targetId) {
+      if (onOpenProfile) onOpenProfile();
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const res = await fetch('/api/user/save-document', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-telegram-user-id': String(targetId),
+        },
+        body: JSON.stringify({
+          telegramId: targetId,
+          title: selectedTemplate.title || 'Huquqiy hujjat',
+          type: selectedTemplate.category || 'hujjat',
+          content: documentContent,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setSavedNotice('✅ Hujjat profilingizga saqlandi');
+        setTimeout(() => setSavedNotice(null), 3000);
+      } else {
+        alert(data.error || 'Saqlashda xatolik');
+      }
+    } catch {
+      alert('Saqlashda aloqa xatosi');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // If passed from Chat
   useEffect(() => {
@@ -345,8 +397,29 @@ export const DocumentBuilderTab: React.FC<Props> = ({ initialDocumentText, onCle
                   <Printer className="w-3.5 h-3.5" />
                   Chop etish
                 </button>
+
+                <button
+                  onClick={handleSaveToProfile}
+                  disabled={isSaving}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/70 hover:bg-emerald-100 dark:hover:bg-emerald-900 border border-emerald-300 dark:border-emerald-700 rounded-lg transition disabled:opacity-50"
+                  title="O‘z profilingizga saqlash"
+                >
+                  <Save className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>{isSaving ? 'Saqlanmoqda...' : 'Hisobga saqlash'}</span>
+                </button>
               </div>
             </div>
+
+            {savedNotice && (
+              <div className="bg-emerald-600 text-white text-xs px-4 py-2 font-medium flex items-center justify-between">
+                <span>{savedNotice}</span>
+                {onOpenProfile && (
+                  <button onClick={onOpenProfile} className="underline text-[11px] font-semibold">
+                    Hujjatlarimni ko‘rish →
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Editable Text Area with monospace/serif feel for authentic legal document drafting */}
             <div className="p-4 flex-1 flex flex-col">

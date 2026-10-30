@@ -1,8 +1,21 @@
 import React from 'react';
-import { Scale, BookOpen, FileCheck2, Calculator, ShieldCheck, ExternalLink, Activity, Languages, Sparkles } from 'lucide-react';
+import {
+  Scale,
+  BookOpen,
+  FileCheck2,
+  Calculator,
+  ShieldCheck,
+  ExternalLink,
+  Activity,
+  Languages,
+  Sparkles,
+  User,
+  Crown,
+} from 'lucide-react';
 import { LEGAL_INDICATORS } from '../data/legalData';
 import { Language, translations } from '../locales/i18n';
 import { triggerHaptic } from '../services/telegramWebApp';
+import { UserProfile } from '../types';
 
 export type ActiveTab = 'chat' | 'docs' | 'calculators' | 'knowledge' | 'stats';
 
@@ -12,7 +25,9 @@ interface Props {
   onShowDisclaimer: () => void;
   lang: Language;
   setLang: (l: Language) => void;
-  telegramUser?: { first_name: string; username?: string } | null;
+  user: UserProfile | null;
+  onOpenProfile: () => void;
+  onOpenPlans: () => void;
   remainingQuota?: number;
 }
 
@@ -22,7 +37,9 @@ export const Header: React.FC<Props> = ({
   onShowDisclaimer,
   lang,
   setLang,
-  telegramUser,
+  user,
+  onOpenProfile,
+  onOpenPlans,
   remainingQuota = 40,
 }) => {
   const t = translations[lang];
@@ -40,7 +57,7 @@ export const Header: React.FC<Props> = ({
   return (
     <header className="border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur sticky top-0 z-40 transition-colors">
       {/* Top benchmark ticker bar */}
-      <div className="bg-slate-900 text-slate-300 text-xs py-1 px-4 border-b border-slate-800">
+      <div className="bg-slate-900 text-slate-300 text-xs py-1.5 px-4 border-b border-slate-800">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3 flex-wrap">
             <span className="font-medium text-emerald-400 flex items-center gap-1.5 text-[11px]">
@@ -55,27 +72,51 @@ export const Header: React.FC<Props> = ({
             ))}
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 flex-wrap">
             {/* Free quota pill */}
             <span className="text-[11px] text-amber-300 bg-amber-950/70 border border-amber-800/80 px-2 py-0.5 rounded-full hidden sm:inline-flex items-center gap-1">
               <Sparkles className="w-3 h-3 text-amber-400" />
               {t.quotaLabel} <strong className="text-white">{remainingQuota}/40</strong>
             </span>
 
-            {/* Telegram User or Bot link */}
-            {telegramUser ? (
-              <span className="text-sky-300 text-[11px] bg-sky-950/80 border border-sky-800 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
-                👤 {telegramUser.first_name}
-              </span>
-            ) : (
-              <a
-                href="https://t.me/shaxsiy_yuristimbot"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sky-300 hover:text-white flex items-center gap-1 text-[11px] bg-sky-950 border border-sky-700/80 px-2 py-0.5 rounded-full transition font-medium"
+            {/* Plans button */}
+            <button
+              onClick={() => {
+                triggerHaptic('light');
+                onOpenPlans();
+              }}
+              className="text-[11px] font-semibold text-amber-300 hover:text-white bg-amber-950/70 hover:bg-amber-900/80 border border-amber-700/70 px-2.5 py-0.5 rounded-full flex items-center gap-1 transition"
+            >
+              <Crown className="w-3 h-3 text-amber-400" />
+              <span>Tariflar</span>
+            </button>
+
+            {/* User Profile / Registration Button */}
+            {user && user.isRegistered ? (
+              <button
+                onClick={() => {
+                  triggerHaptic('light');
+                  onOpenProfile();
+                }}
+                className="text-sky-300 hover:text-white text-[11px] bg-sky-950/80 hover:bg-sky-900 border border-sky-800 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 transition font-medium"
               >
-                ✈️ @shaxsiy_yuristimbot
-              </a>
+                <User className="w-3 h-3 text-sky-400" />
+                <span className="max-w-[120px] truncate">{user.fullName}</span>
+                <span className="text-[9px] uppercase px-1 rounded bg-sky-800 text-sky-200">
+                  {user.plan}
+                </span>
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  triggerHaptic('light');
+                  onOpenProfile();
+                }}
+                className="text-sky-300 hover:text-white text-[11px] bg-sky-950/80 hover:bg-sky-900 border border-sky-700/80 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 transition font-medium"
+              >
+                <User className="w-3 h-3 text-sky-400" />
+                <span>Ro‘yxatdan o‘tish</span>
+              </button>
             )}
 
             <span className="text-slate-600">|</span>

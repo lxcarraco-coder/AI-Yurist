@@ -1,5 +1,19 @@
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { getLegalConsultationFallback } from './legalKnowledgeBase.ts';
+import type { UserProfile } from './userStore.ts';
+import {
+  getUser,
+  createOrUpdateUser,
+  incrementConsultation,
+} from './userStore.ts';
+
+export interface TelegramContact {
+  phone_number: string;
+  first_name: string;
+  last_name?: string;
+  user_id?: number;
+}
+export const TelegramContact = {};
 
 export interface TelegramUpdate {
   update_id: number;
@@ -16,6 +30,7 @@ export interface TelegramUpdate {
       type: string;
     };
     text?: string;
+    contact?: TelegramContact;
     date: number;
   };
   callback_query?: {
@@ -23,6 +38,8 @@ export interface TelegramUpdate {
     from: {
       id: number;
       first_name?: string;
+      last_name?: string;
+      username?: string;
     };
     message?: {
       message_id: number;
@@ -33,14 +50,14 @@ export interface TelegramUpdate {
     data?: string;
   };
 }
-
-// User state storage (in-memory for active sessions)
-const userRoles: Record<number, 'tadbirkor' | 'buxgalter' | 'fuqaro'> = {};
+export const TelegramUpdate = {};
 
 export interface TelegramBotController {
   handleWebhookUpdate: (update: TelegramUpdate) => Promise<void>;
   stop: () => void;
 }
+export const TelegramBotController = {};
+
 
 export function startTelegramBot(
   token: string,
@@ -58,8 +75,9 @@ export function startTelegramBot(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           commands: [
-            { command: 'start', description: 'Botni ishga tushirish va menyu' },
+            { command: 'start', description: 'Botni ishga tushirish va ro‘yxatdan o‘tish' },
             { command: 'webapp', description: '⚖️ Yurist AI Mini App ilovasini ochish' },
+            { command: 'profil', description: '👤 Shaxsiy hisob va tarif' },
             { command: 'imkoniyatlar', description: '📚 Platforma imkoniyatlari' },
             { command: 'yordam', description: 'ℹ️ Yordam va qo‘llanma' },
           ],
@@ -90,7 +108,6 @@ export function startTelegramBot(
     try {
       const MAX_CHUNK = 3900;
       if (text.length > MAX_CHUNK) {
-        // Split by double newline or paragraph
         const parts: string[] = [];
         let remaining = text;
         while (remaining.length > 0) {
@@ -165,7 +182,7 @@ export function startTelegramBot(
     }
   }
 
-  // Answer callback query to dismiss loading state in Telegram client
+  // Answer callback query
   async function answerCallbackQuery(callbackQueryId: string, text?: string) {
     try {
       await fetch(`${TELEGRAM_API}/answerCallbackQuery`, {
@@ -181,16 +198,89 @@ export function startTelegramBot(
     }
   }
 
-  // Send Welcome screen with EXACT buttons requested by requirements
-  async function sendWelcome(chatId: number, name?: string) {
-    const greeting = name ? `Assalomu alaykum, ${name}!` : 'Assalomu alaykum!';
-    const welcomeText = `${greeting}
+  // Prompt phone number sharing via Telegram Native Contact Button
+  async function requestContactRegistration(chatId: number, firstName?: string) {
+    createOrUpdateUser(chatId, {
+      registrationStep: 'WAITING_CONTACT',
+      isRegistered: false,
+    });
 
-**Yurist AI UZ — O‘zbekiston Respublikasi Qonunchiligi Huquqiy Yordamchisi** platformasiga xush kelibsiz!
+    const greeting = firstName ? `Assalomu alaykum, ${firstName}!` : 'Assalomu alaykum!';
+    const text = `${greeting}
 
-Mening bilimlar bazamda O‘zbekiston Respublikasining amaldagi qonunlari, yangi tahrirdagi Mehnat kodeksi, Soliq kodeksi (QQS 12%), Fuqarolik kodeksi, Oila kodeksi va rasmiy **Lex.uz** qarorlari joylashgan.
+⚖️ **Yurist AI UZ — O‘zbekiston Respublikasi Qonunchiligi Huquqiy Yordamchisi** platformasiga xush kelibsiz!
 
-Quyidagi tugmalar orqali xizmatdan to‘liq foydalanishingiz mumkin yoki to‘g‘ridan-to‘g‘ri savolingizni yozib yuboring:`;
+Tizimda O‘zbekiston Respublikasining yangi tahrirdagi Mehnat kodeksi, Soliq kodeksi (QQS 12%), Fuqarolik kodeksi va Lex.uz qarorlari joylashtirilgan.
+
+📲 **Xizmatdan to‘liq foydalanish, arizalar va shartnomalar tuzish uchun ro‘yxatdan o‘tishni yakunlang.**
+
+Quyidagi **«📲 Telefon raqamni yuborish»** tugmasini bosing:`;
+
+    const contactKeyboard = {
+      keyboard: [
+        [
+          {
+            text: '📲 Telefon raqamni yuborish',
+            request_contact: true,
+          },
+        ],
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    };
+
+    await sendMessage(chatId, text, contactKeyboard);
+  }
+
+  // Prompt full name input
+  async function promptFullName(chatId: number, phone: string) {
+    const text = `✅ Telefon raqamingiz muvaffaqiyatli qabul qilindi: **${phone}**
+
+✍️ Endi rasmiy arizalar, mehnat va tijorat shartnomalarida to‘g‘ri aks etishi uchun to‘liq **Ism va Familiyangizni** yozib yuboring:
+*(Masalan: Alisher Qodirov yoki Ziyodullo Mahmudov)*`;
+
+    // Remove custom keyboard and ask for text input
+    await sendMessage(chatId, text, { remove_keyboard: true });
+  }
+
+  // Complete registration and display welcome screen with Mini App buttons
+  async function completeRegistration(chatId: number, fullName: string, username?: string) {
+    const user = createOrUpdateUser(chatId, {
+      fullName: fullName.trim(),
+      username,
+      isRegistered: true,
+      registrationStep: 'COMPLETED',
+      plan: 'free',
+    });
+
+    const text = `🎉 **Tabriklaymiz, ${user.fullName}!**
+
+Siz **Yurist AI UZ** platformasidan muvaffaqiyatli ro‘yxatdan o‘tdingiz!
+
+📋 **Sizning shaxsiy hisobingiz:**
+• **F.I.SH:** ${user.fullName}
+• **Telefon:** ${user.phone}
+• **Tarif:** Bepul (Kunlik 40 ta huquqiy tahlil, 10 xil hujjatlar shabloni)
+• **ID raqami:** #ID-${chatId}
+
+Quyidagi tugma orqali bevosita **Yurist AI Mini App** ilovasini ochishingiz yoki savolingizni shu yerga yozishingiz mumkin:`;
+
+    await sendWelcomeDashboard(chatId, user);
+  }
+
+  // Welcome / Dashboard screen with Mini App buttons
+  async function sendWelcomeDashboard(chatId: number, user?: UserProfile) {
+    const name = user?.fullName || 'Foydalanuvchi';
+    const text = `Assalomu alaykum, **${name}**!
+
+⚖️ **Yurist AI UZ** platformasi xizmatingizda.
+
+📋 **Sizning hisobingiz:**
+• **F.I.SH:** ${user?.fullName || 'Ro‘yxatdan o‘tmagan'}
+• **Telefon:** ${user?.phone || 'Biriktirilmagan'}
+• **Tarif:** ${user?.plan === 'professional' ? '💎 Professional (Cheksiz)' : user?.plan === 'standard' ? '⭐ Standart' : '🆓 Bepul (40 ta so‘rov/kun)'}
+
+Quyidagi tugmalar orqali Mini App ilovasini oching yoki bevosita savolingizni yozib yuboring:`;
 
     const inlineKeyboard: any[][] = [];
 
@@ -210,15 +300,14 @@ Quyidagi tugmalar orqali xizmatdan to‘liq foydalanishingiz mumkin yoki to‘g�
       { text: 'ℹ️ Yordam', callback_data: 'cmd_help' },
     ]);
 
-    // Row 3: Required fallback link to open in a normal browser
-    if (webAppUrl) {
-      inlineKeyboard.push([
-        {
-          text: '🌐 Brauzerda ochish (Fallback)',
-          url: webAppUrl,
-        },
-      ]);
-    }
+    // Row 3: Fallback link & Profile
+    inlineKeyboard.push([
+      { text: '👤 Mening hisobim', callback_data: 'cmd_profile' },
+      {
+        text: '🌐 Brauzerda ochish',
+        url: webAppUrl || 'https://lex.uz',
+      },
+    ]);
 
     // Role switcher row
     inlineKeyboard.push([
@@ -227,36 +316,68 @@ Quyidagi tugmalar orqali xizmatdan to‘liq foydalanishingiz mumkin yoki to‘g�
       { text: '👤 Fuqaro', callback_data: 'role_fuqaro' },
     ]);
 
-    await sendMessage(chatId, welcomeText, { inline_keyboard: inlineKeyboard });
+    await sendMessage(chatId, text, { inline_keyboard: inlineKeyboard });
+  }
+
+  // Send Profile details
+  async function sendProfile(chatId: number) {
+    const user = getUser(chatId);
+    if (!user || !user.isRegistered) {
+      await requestContactRegistration(chatId);
+      return;
+    }
+
+    const text = `👤 **SIZNING SHAXSIY PROFILINGIZ:**
+
+• **F.I.SH:** ${user.fullName}
+• **Telefon raqam:** ${user.phone}
+• **Telegram ID:** ${user.telegramId}
+• **Tanlangan soha:** ${user.role === 'tadbirkor' ? '🏢 Tadbirkor' : user.role === 'buxgalter' ? '📊 Buxgalter' : '👤 Fuqaro'}
+• **Joriy tarif:** ${user.plan === 'professional' ? '💎 Professional (Cheksiz)' : user.plan === 'standard' ? '⭐ Standart (49 000 so‘m)' : '🆓 Bepul (40 ta so‘rov/kun)'}
+• **Yaratilgan hujjatlar:** ${user.documentsCount || 0} ta
+• **Olingan konsultatsiyalar:** ${user.consultationsCount || 0} ta
+• **Ro‘yxatdan o‘tilgan sana:** ${new Date(user.createdAt).toLocaleDateString('uz-UZ')}
+
+💳 *Kelgusida qo‘shimcha pullik xizmatlar (sudga da’vo tayyorlash, shaxsiy yurist auditi, Payme/Click orqali to‘lov) ushbu hisobingizga ulanadi.*`;
+
+    const keyboard = {
+      inline_keyboard: [
+        webAppUrl && webAppUrl.startsWith('https://')
+          ? [{ text: '⚖️ Mini Appda ochish', web_app: { url: webAppUrl } }]
+          : [],
+        [{ text: '◀️ Asosiy menyu', callback_data: 'cmd_start' }],
+      ].filter((r) => r.length > 0),
+    };
+
+    await sendMessage(chatId, text, keyboard);
   }
 
   // Send Features screen
   async function sendFeatures(chatId: number) {
     const text = `📚 **YURIST AI PLATFORMASI IMKONIYATLARI:**
 
-1. 💬 **Tezkor AI Konsultatsiya:**
-• O‘zbekiston qonunlari va Lex.uz bo‘yicha 2-3 soniyada aniq huquqiy tahlil;
+1. 💬 **Tezkor AI Huquqiy Tahlil:**
+• O‘zbekiston Respublikasi qonunlari va Lex.uz bo‘yicha 2-3 soniyada aniq huquqiy tahlil;
 • 📌 Qisqa xulosa, ⚖️ Qonuniy asos va 🛠 Amaliy qadamlar.
 
 2. 📝 **10 xil Hujjatlar konstruktori:**
-• Ariza va shikoyatlar;
-• Talabnoma (Pretenziya);
-• Ish beruvchiga rasmiy murojaat;
-• Ijara va mehnat shartnomalari loyihalari;
-• Qarzni qaytarish talabi va tilxatlar;
+• Mehnat ta’tili va ishdan bo‘shash arizalari (MK 217, 161);
+• Talabnoma (Pretenziya) va shikoyatlar;
+• Bino-inshoot ijara shartnomasi;
+• Qarz shartnomasi va tilxat (FK 732);
 • Sudga da’vo arizalari;
-• Aliment undirish to‘g‘risida sud arizasi;
+• Aliment undirish to‘g‘risida sudga ariza (OK 99);
 • Ishonchnoma (Doverennost).
-*(Tayyor matnlarni Word va matn shaklida yuklab olish mumkin)*
+*(Mini Appda Word va matn shaklida yuklab olish va o‘z hisobingizga saqlash mumkin)*
 
 3. 🧮 **Huquqiy Kalkulyatorlar:**
 • **MJtK 332-1:** Jarimalarni 15 kunda 50% chegirma bilan to‘lash;
-• **MK 217:** 21 kalendar kunlik mehnat ta’tili va ishdan bo‘shash kompensatsiyasi;
+• **MK 217:** 21 kalendar kunlik mehnat ta’tili va kompensatsiyasi;
 • **Oila kodeksi 99:** Aliment foizlari (25%, 33.3%, 50%);
 • **Davlat boji:** Iqtisodiy va fuqarolik sudlari bojlari.
 
-4. 🆓 **Mutlaqo bepul:**
-• Obuna yoki to‘lov tizimlari yo‘q, barcha funksiyalar bepul taqdim etiladi.`;
+4. 🆓 **Bepul foydalanish:**
+• Kunlik 40 ta bepul savol-javob barcha ro‘yxatdan o‘tgan foydalanuvchilar uchun ochiq.`;
 
     const keyboard = {
       inline_keyboard: [
@@ -275,15 +396,15 @@ Quyidagi tugmalar orqali xizmatdan to‘liq foydalanishingiz mumkin yoki to‘g�
     const text = `ℹ️ **FOYDALANISH BO‘YICHA YORDAM:**
 
 1. **Savol berish:**
-Botga istalgan savolingizni yozib yuboring (masalan: *"Xodimni o‘z xohishi bilan bo‘shatish tartibi qanday?"*, *"Ajrashmoqchiman nima qilishim kerak?"*, *"QQS 12% aylanma soliqdan qanday farqlanadi?"*).
+Botga istalgan huquqiy savolingizni yozib yuboring (masalan: *"Xodimni o‘z xohishi bilan bo‘shatish tartibi qanday?"*, *"Ajrashmoqchiman, aliment qancha bo‘ladi?"*, *"QQS 12% aylanma soliqdan qanday farqlanadi?"*).
 
-2. **Mini App (Ilova):**
-«⚖️ Yurist AI’ni ochish» tugmasini bossangiz, Telegram ichidan chiqmasdan qulay kalkulyatorlar va hujjatlar konstruktoridan foydalanishingiz mumkin.
+2. **Mini App ilovasi:**
+«⚖️ Yurist AI’ni ochish» tugmasini bossangiz, Telegram ichida to‘liq interaktiv kalkulyatorlar, hujjat tuzish va shaxsiy hisobingiz ochiladi.
 
 3. **Sohani tanlash:**
-Savollaringiz biznesga oid bo‘lsa /tadbirkor, soliqqa oid bo‘lsa /buxgalter, shaxsiy yoki oilaviy bo‘lsa /fuqaro buyruqlarini tanlashingiz mumkin.
+Biznes uchun /tadbirkor, buxgalteriya va soliq uchun /buxgalter, shaxsiy masalalar uchun /fuqaro rejimlarini tanlang.
 
-*Eslatib o‘taman, ushbu ma’lumot maslahat xarakteriga ega va rasmiy advokatlik yoki sud xulosasi o‘rnini bosmaydi.*`;
+*Eslatma: Ushbu ma’lumot maslahat xarakteriga ega va rasmiy advokatlik yoki sud xulosasi o‘rnini bosmaydi.*`;
 
     const keyboard = {
       inline_keyboard: [
@@ -335,11 +456,13 @@ Savollaringiz biznesga oid bo‘lsa /tadbirkor, soliqqa oid bo‘lsa /buxgalter,
       }
     }
 
-    // If all models hit quota or failed, use the verified Uzbek legal knowledge base
+    // If Gemini models hit 429 quota exhaustion or network error, use verified knowledge base fallback
     if (!replyText) {
       console.log('Using Uzbek Legal Knowledge Base fallback for Telegram user query:', query);
       replyText = getLegalConsultationFallback(query, 'uz');
     }
+
+    incrementConsultation(chatId);
 
     const actionButtons = {
       inline_keyboard: [
@@ -373,26 +496,33 @@ Savollaringiz biznesga oid bo‘lsa /tadbirkor, soliqqa oid bo‘lsa /buxgalter,
         await answerCallbackQuery(cb.id);
 
         if (chatId && data) {
+          const user = getUser(chatId);
           if (data === 'cmd_start') {
-            await sendWelcome(chatId, cb.from.first_name);
+            if (!user || !user.isRegistered) {
+              await requestContactRegistration(chatId, cb.from.first_name);
+            } else {
+              await sendWelcomeDashboard(chatId, user);
+            }
           } else if (data === 'cmd_features') {
             await sendFeatures(chatId);
           } else if (data === 'cmd_help') {
             await sendHelp(chatId);
+          } else if (data === 'cmd_profile') {
+            await sendProfile(chatId);
           } else if (data === 'role_tadbirkor') {
-            userRoles[chatId] = 'tadbirkor';
+            createOrUpdateUser(chatId, { role: 'tadbirkor' });
             await sendMessage(
               chatId,
               '✅ Soha: **🏢 Tadbirkor (MChJ / YaTT)** tanlandi.\n\nBiznes, shartnomalar, xodimlar yoki soliqqa oid istalgan huquqiy savolingizni yozing:'
             );
           } else if (data === 'role_buxgalter') {
-            userRoles[chatId] = 'buxgalter';
+            createOrUpdateUser(chatId, { role: 'buxgalter' });
             await sendMessage(
               chatId,
               '✅ Soha: **📊 Buxgalter / Moliyachi** tanlandi.\n\nSoliq kodeksi, QQS (12%), aylanmadan soliq, E-faktura yoki hisobotlar bo‘yicha savolingizni yozing:'
             );
           } else if (data === 'role_fuqaro') {
-            userRoles[chatId] = 'fuqaro';
+            createOrUpdateUser(chatId, { role: 'fuqaro' });
             await sendMessage(
               chatId,
               '✅ Soha: **👤 Fuqaro (Jismoniy shaxs)** tanlandi.\n\nOila, nikohdan ajrashish, aliment, meros, mehnat huquqlari yoki jarimalar bo‘yicha savolingizni yozing:'
@@ -402,32 +532,87 @@ Savollaringiz biznesga oid bo‘lsa /tadbirkor, soliqqa oid bo‘lsa /buxgalter,
         return;
       }
 
-      // Handle incoming messages
+      // Handle Contact message (Telegram native request_contact)
+      if (update.message?.contact) {
+        const chatId = update.message.chat.id;
+        const contact = update.message.contact;
+        let phone = contact.phone_number.trim();
+        if (!phone.startsWith('+')) {
+          phone = `+${phone}`;
+        }
+
+        createOrUpdateUser(chatId, {
+          phone,
+          registrationStep: 'WAITING_NAME',
+          username: update.message.from?.username,
+        });
+
+        await promptFullName(chatId, phone);
+        return;
+      }
+
+      // Handle text messages
       if (update.message && update.message.text) {
         const chatId = update.message.chat.id;
         const text = update.message.text.trim();
         const firstName = update.message.from?.first_name;
+        const user = getUser(chatId);
+
+        // Check if user is in WAITING_NAME step
+        if (user && user.registrationStep === 'WAITING_NAME' && !text.startsWith('/')) {
+          if (text.length >= 2) {
+            await completeRegistration(chatId, text, update.message.from?.username);
+            return;
+          } else {
+            await sendMessage(chatId, 'Iltimos, to‘liq ism va familiyangizni yozing (kamida 2 ta belgi):');
+            return;
+          }
+        }
 
         if (text === '/start') {
-          await sendWelcome(chatId, firstName);
+          if (!user || !user.isRegistered) {
+            await requestContactRegistration(chatId, firstName);
+          } else {
+            await sendWelcomeDashboard(chatId, user);
+          }
         } else if (text === '/imkoniyatlar' || text === '/features') {
           await sendFeatures(chatId);
         } else if (text === '/yordam' || text === '/help') {
           await sendHelp(chatId);
+        } else if (text === '/profil' || text === '/profile') {
+          await sendProfile(chatId);
         } else if (text === '/tadbirkor') {
-          userRoles[chatId] = 'tadbirkor';
+          createOrUpdateUser(chatId, { role: 'tadbirkor' });
           await sendMessage(chatId, '✅ Soha: **🏢 Tadbirkor** tanlandi. Savolingizni yozing:');
         } else if (text === '/buxgalter') {
-          userRoles[chatId] = 'buxgalter';
+          createOrUpdateUser(chatId, { role: 'buxgalter' });
           await sendMessage(chatId, '✅ Soha: **📊 Buxgalter** tanlandi. Savolingizni yozing:');
         } else if (text === '/fuqaro') {
-          userRoles[chatId] = 'fuqaro';
+          createOrUpdateUser(chatId, { role: 'fuqaro' });
           await sendMessage(chatId, '✅ Soha: **👤 Fuqaro** tanlandi. Savolingizni yozing:');
         } else if (text === '/webapp') {
-          await sendWelcome(chatId, firstName);
+          if (!user || !user.isRegistered) {
+            await requestContactRegistration(chatId, firstName);
+          } else {
+            await sendWelcomeDashboard(chatId, user);
+          }
         } else {
-          // Default: Legal consultation question
-          const currentRole = userRoles[chatId] || 'fuqaro';
+          // If not registered at all and sending regular text, prompt registration gently
+          if (!user || !user.isRegistered) {
+            if (user && user.registrationStep === 'WAITING_CONTACT') {
+              await sendMessage(
+                chatId,
+                'Iltimos, avval pastdagi **«📲 Telefon raqamni yuborish»** tugmasini bosing:'
+              );
+              return;
+            } else {
+              await requestContactRegistration(chatId, firstName);
+              return;
+            }
+          }
+
+          // User is registered, handle consultation question
+          const currentRole = user.role || 'fuqaro';
           await handleLegalQuestion(chatId, text, currentRole);
         }
       }

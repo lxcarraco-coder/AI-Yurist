@@ -48,3 +48,37 @@ export interface DocumentTemplate {
     defaultValue?: string;
   }[];
 }
+
+export interface SavedLegalDocument {
+  id: string;
+  title: string;
+  type: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface UserProfile {
+  telegramId: number | string;
+  phone: string;
+  fullName: string;
+  username?: string;
+  role: UserRole;
+  plan: 'free' | 'standard' | 'professional';
+  balance: number;
+  consultationsCount: number;
+  documentsCount: number;
+  isRegistered?: boolean;
+  createdAt?: string;
+}
+
+export interface SubscriptionPlan {
+  id: 'free' | 'standard' | 'professional';
+  name: string;
+  price: number;
+  currency: string;
+  period: string;
+  badge: string;
+  features: string[];
+  isCurrent?: boolean;
+  paymentReady?: boolean;
+}

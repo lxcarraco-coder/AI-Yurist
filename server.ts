@@ -85,6 +85,15 @@ function getClientIdentifier(req: Request): string {
 let botController: TelegramBotController | null = null;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '9193471217:AAGFiLJ1N6E5-HTgqi5PFRWNio-7m1OkPUs';
 
+import {
+  getUser,
+  getUserByPhone,
+  createOrUpdateUser,
+  addSavedDocument,
+  getUserDocuments,
+  getAllUsersCount,
+} from './src/services/userStore.ts';
+
 // 1. Telegram WebApp InitData Validation Endpoint (never trust initDataUnsafe on client)
 app.post('/api/telegram/validate-init-data', (req: Request, res: Response) => {
   const { initData } = req.body;
@@ -109,20 +118,175 @@ app.post('/api/telegram-webhook', async (req: Request, res: Response) => {
   }
 });
 
-// 3. User Quota Check Endpoint
+// 3. User Profile Endpoint (Linked with Telegram Bot Registration)
+app.get('/api/user/profile', (req: Request, res: Response) => {
+  const telegramUserId = req.headers['x-telegram-user-id'] || req.query.telegramId;
+  const clientId = getClientIdentifier(req);
+  const quota = getUserQuotaStatus(clientId);
+
+  if (telegramUserId) {
+    const user = getUser(String(telegramUserId));
+    if (user && user.isRegistered) {
+      return res.json({
+        registered: true,
+        user: {
+          telegramId: user.telegramId,
+          phone: user.phone,
+          fullName: user.fullName,
+          username: user.username,
+          role: user.role,
+          plan: user.plan,
+          balance: user.balance,
+          consultationsCount: user.consultationsCount,
+          documentsCount: user.documentsCount,
+          createdAt: user.createdAt,
+        },
+        quota,
+      });
+    }
+  }
+
+  return res.json({
+    registered: false,
+    quota,
+  });
+});
+
+// 4. User Registration Endpoint (direct from Web/Mini App if needed)
+app.post('/api/user/register', (req: Request, res: Response) => {
+  const { telegramId, phone, fullName, role } = req.body;
+
+  if (!phone || !fullName) {
+    return res.status(400).json({ error: 'Telefon raqam va ism-familiya kiritilishi shart' });
+  }
+
+  const targetId = telegramId || `web_${phone.replace(/[^0-9]/g, '')}`;
+  const user = createOrUpdateUser(targetId, {
+    phone,
+    fullName: fullName.trim(),
+    role: role || 'fuqaro',
+    plan: 'free',
+    isRegistered: true,
+    registrationStep: 'COMPLETED',
+  });
+
+  return res.json({
+    success: true,
+    user: {
+      telegramId: user.telegramId,
+      phone: user.phone,
+      fullName: user.fullName,
+      role: user.role,
+      plan: user.plan,
+      balance: user.balance,
+    },
+  });
+});
+
+// 5. User Saved Documents List
+app.get('/api/user/documents', (req: Request, res: Response) => {
+  const telegramUserId = req.headers['x-telegram-user-id'] || req.query.telegramId;
+  if (!telegramUserId) {
+    return res.json({ documents: [] });
+  }
+
+  const docs = getUserDocuments(String(telegramUserId));
+  return res.json({ documents: docs });
+});
+
+// 6. Save Document to User Profile
+app.post('/api/user/save-document', (req: Request, res: Response) => {
+  const telegramUserId = req.headers['x-telegram-user-id'] || req.body.telegramId;
+  const { title, type, content } = req.body;
+
+  if (!telegramUserId) {
+    return res.status(400).json({ error: 'Foydalanuvchi hisobi aniqlanmadi' });
+  }
+
+  if (!title || !content) {
+    return res.status(400).json({ error: 'Hujjat sarlavhasi va matni talab qilinadi' });
+  }
+
+  const saved = addSavedDocument(String(telegramUserId), { title, type: type || 'hujjat', content });
+  if (!saved) {
+    return res.status(404).json({ error: 'Foydalanuvchi hisobi topilmadi' });
+  }
+
+  return res.json({ success: true, document: saved });
+});
+
+// 7. Pricing / Services Plans Endpoint (Payme / Click ready)
+app.get('/api/plans', (_req: Request, res: Response) => {
+  return res.json({
+    plans: [
+      {
+        id: 'free',
+        name: 'Bepul',
+        price: 0,
+        currency: 'UZS',
+        period: 'Doimiy',
+        badge: 'Boshlang‘ich',
+        features: [
+          'Kunlik 40 ta huquqiy savol-javob',
+          '10 xil qonuniy hujjat shablonlari',
+          'Lex.uz asosidagi tahlil va normativlar',
+          'Huquqiy kalkulyatorlar (Jarimalar, Ta’til, Aliment)',
+          'Telegram Mini App orqali to‘liq kirish',
+        ],
+        isCurrent: true,
+      },
+      {
+        id: 'standard',
+        name: 'Standart',
+        price: 49000,
+        currency: 'UZS',
+        period: 'oyiga',
+        badge: 'Ommabop',
+        features: [
+          'Cheksiz sun’iy intellekt huquqiy tahlili',
+          'Barcha shartnomalar va da’vo arizalarini generatsiya qilish',
+          'Word (.docx) formatida eksport qilish',
+          'Shaxsiy hisobda hujjatlarni cheksiz saqlash',
+          'Tezkor ustuvor javoblar',
+        ],
+        paymentReady: true,
+      },
+      {
+        id: 'professional',
+        name: 'Professional',
+        price: 99000,
+        currency: 'UZS',
+        period: 'oyiga',
+        badge: 'Biznes va Yuristlar uchun',
+        features: [
+          'Standart tarifdagi barcha imkoniyatlar',
+          'Tadbirkorlik va MChJ shartnomalari yuridik auditi',
+          'Soliq va mehnat nizolari bo‘yicha chuqur tahlil',
+          '24/7 shaxsiy yordamchi',
+          'Ekspert tekshiruvi tavsiyalari',
+        ],
+        paymentReady: true,
+      },
+    ],
+    paymentGateways: ['Payme', 'Click', 'Uzum Bank'],
+  });
+});
+
+// 8. User Quota Check Endpoint
 app.get('/api/user-quota', (req: Request, res: Response) => {
   const clientId = getClientIdentifier(req);
   const status = getUserQuotaStatus(clientId);
   return res.json(status);
 });
 
-// 4. System Status & Metrics Endpoint
+// 9. System Status & Metrics Endpoint
 app.get('/api/system-stats', (_req: Request, res: Response) => {
   const uptimeSeconds = Math.floor((Date.now() - systemStats.startTime) / 1000);
   return res.json({
     totalQueries: systemStats.totalQueries,
     totalDocumentsGenerated: systemStats.totalDocumentsGenerated,
     uniqueUsersToday: systemStats.uniqueUsersToday.size,
+    totalRegisteredUsers: getAllUsersCount(),
     errorsCount: systemStats.errorsCount,
     uptimeSeconds,
     rateLimitPerMinute: 15,
