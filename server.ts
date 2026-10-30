@@ -374,7 +374,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       });
     }
 
-    const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
     let streamSuccess = false;
 
     // Get the user's latest query text
@@ -382,6 +382,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     const userQueryText = lastUserMsg?.parts[0]?.text || 'huquqiy maslahat';
 
     for (const modelName of candidateModels) {
+      let hasStreamedChunk = false;
       try {
         const streamResponse = await ai.models.generateContentStream({
           model: modelName,
@@ -395,18 +396,17 @@ app.post('/api/chat', async (req: Request, res: Response) => {
           },
         });
 
-        // Configure response stream SSE with anti-buffering only when generator succeeded
-        if (!res.headersSent) {
-          res.setHeader('Content-Type', 'text/event-stream');
-          res.setHeader('Cache-Control', 'no-cache, no-transform');
-          res.setHeader('Connection', 'keep-alive');
-          res.setHeader('X-Accel-Buffering', 'no');
-          res.flushHeaders();
-        }
-
         for await (const chunk of streamResponse) {
           const text = chunk.text;
           if (text) {
+            if (!res.headersSent) {
+              res.setHeader('Content-Type', 'text/event-stream');
+              res.setHeader('Cache-Control', 'no-cache, no-transform');
+              res.setHeader('Connection', 'keep-alive');
+              res.setHeader('X-Accel-Buffering', 'no');
+              res.flushHeaders();
+            }
+            hasStreamedChunk = true;
             res.write(`data: ${JSON.stringify({ text })}\n\n`);
             if (typeof (res as any).flush === 'function') {
               (res as any).flush();
@@ -414,16 +414,23 @@ app.post('/api/chat', async (req: Request, res: Response) => {
           }
         }
 
-        res.write('data: [DONE]\n\n');
-        res.end();
-        streamSuccess = true;
-        break; // Successfully streamed!
+        if (hasStreamedChunk) {
+          res.write('data: [DONE]\n\n');
+          res.end();
+          streamSuccess = true;
+          break; // Successfully streamed!
+        }
       } catch (modelErr: any) {
         console.warn(`Model ${modelName} stream failed: ${modelErr?.message || modelErr}`);
-        // If headers already sent, we cannot silently try another model via standard HTTP
-        if (res.headersSent) {
+        if (hasStreamedChunk) {
+          // If some tokens were already streamed before error, terminate cleanly
+          res.write(`data: ${JSON.stringify({ text: '\n\n*Qo‘shimcha ma’lumotlarni Lex.uz saytidan olishingiz mumkin.*' })}\n\n`);
+          res.write('data: [DONE]\n\n');
+          res.end();
+          streamSuccess = true;
           break;
         }
+        // If no chunks were sent yet and headers not sent, loop naturally continues to next model
       }
     }
 
@@ -448,7 +455,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
           if (typeof (res as any).flush === 'function') {
             (res as any).flush();
           }
-          await new Promise((resolve) => setTimeout(resolve, 8));
+          await new Promise((resolve) => setTimeout(resolve, 4));
         }
       }
 
@@ -499,7 +506,7 @@ QAT'IY TALABLAR:
 *"Eslatib o‘taman, ushbu ma’lumot maslahat xarakteriga ega va rasmiy yuridik xulosa o‘rnini bosmaydi."*
 ${lang === 'ru' ? 'Hujjatni to‘liq rus tilida (на русском языке) tayyorlang.' : 'Hujjatni o‘zbek tilida tayyorlang.'}`;
 
-    const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
     let generatedDoc = '';
 
     for (const model of candidateModels) {

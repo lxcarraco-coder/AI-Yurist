@@ -224,7 +224,14 @@ Shuningdek, zarur bo‘lsa rasmiy shartnomalar, buyruqlar, arizalar yoki sudga d
       }
 
       if (!response.ok) {
-        throw new Error(`Server xatosi: ${response.statusText}`);
+        let errMessage = '';
+        try {
+          const errData = await response.json();
+          errMessage = errData.error || errData.text || '';
+        } catch {
+          // Response was not JSON
+        }
+        throw new Error(errMessage || `Server xatosi: ${response.status}`);
       }
 
       const contentType = response.headers.get('content-type') || '';
@@ -308,6 +315,14 @@ Shuningdek, zarur bo‘lsa rasmiy shartnomalar, buyruqlar, arizalar yoki sudga d
         }
       }
 
+      if (!accumulated.trim()) {
+        throw new Error(
+          lang === 'uz'
+            ? 'Konsultatsiya shakllantirishda texnik uzilish yuz berdi. Iltimos qaytadan urinib ko‘ring.'
+            : 'Произошла техническая задержка. Пожалуйста, повторите запрос.'
+        );
+      }
+
       // Fetch updated quota
       fetch('/api/user-quota', { headers })
         .then((r) => r.json())
@@ -320,10 +335,16 @@ Shuningdek, zarur bo‘lsa rasmiy shartnomalar, buyruqlar, arizalar yoki sudga d
     } catch (error: any) {
       console.error('Chat error:', error);
       triggerHaptic('error');
-      setErrorMessage(
-        lang === 'uz'
-          ? 'Konsultatsiya shakllantirishda texnik uzilish yuz berdi. Iltimos qaytadan urinib ko‘ring.'
-          : 'Произошла техническая задержка. Пожалуйста, повторите запрос.'
+      const displayMsg =
+        error?.message && !error.message.startsWith('Server xatosi')
+          ? error.message
+          : (lang === 'uz'
+            ? 'Konsultatsiya shakllantirishda texnik uzilish yuz berdi. Iltimos qaytadan urinib ko‘ring.'
+            : 'Произошла техническая задержка. Пожалуйста, повторите запрос.');
+      setErrorMessage(displayMsg);
+      // Remove empty assistant placeholder so the chat doesn't stay with an empty bubble
+      updateCurrentSessionMessages(
+        updatedWithUser.filter((m) => m.id !== assistantId)
       );
     } finally {
       setIsLoading(false);
@@ -467,11 +488,29 @@ Shuningdek, zarur bo‘lsa rasmiy shartnomalar, buyruqlar, arizalar yoki sudga d
         <div className="p-3 mb-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 flex items-start justify-between gap-2 animate-in fade-in">
           <div className="flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-            <span>{errorMessage}</span>
+            <div className="space-y-1.5">
+              <span>{errorMessage}</span>
+              {messages.length > 0 && messages[messages.length - 1]?.role === 'user' && (
+                <div>
+                  <button
+                    onClick={() => {
+                      const lastMsg = messages[messages.length - 1];
+                      if (lastMsg) {
+                        handleSendMessage(lastMsg.content);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 font-semibold text-amber-900 dark:text-amber-100 hover:underline cursor-pointer"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    {lang === 'uz' ? 'Qaytadan urinish' : 'Повторить попытку'}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           <button
             onClick={() => setErrorMessage(null)}
-            className="text-amber-700 hover:text-amber-900 font-bold text-xs"
+            className="text-amber-700 hover:text-amber-900 font-bold text-xs p-1"
           >
             ✕
           </button>

@@ -431,7 +431,7 @@ Biznes uchun /tadbirkor, buxgalteriya va soliq uchun /buxgalter, shaxsiy masalal
       roleContext = '\nFoydalanuvchi: Jismoniy shaxs. Tushunarli va sodda xalqona tilda tushuntiring.';
     }
 
-    const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash'];
     let replyText = '';
 
     for (const model of candidateModels) {
